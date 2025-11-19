@@ -31,31 +31,19 @@ const linking = {
       PaymentResult: {
         path: 'payment',
         parse: {
+          // Capturar todos los posibles parámetros que MercadoPago puede enviar
           status: (status) => status || 'unknown',
+          collection_status: (collection_status) => collection_status || null,
+          payment_status: (payment_status) => payment_status || null,
           payment_id: (payment_id) => payment_id || null,
+          collection_id: (collection_id) => collection_id || null,
           preference_id: (preference_id) => preference_id || null,
           payment_type: (payment_type) => payment_type || null,
+          merchant_order_id: (merchant_order_id) => merchant_order_id || null,
           external_reference: (external_reference) => external_reference || null,
         },
       },
     },
-  },
-  // No mantener el estado de navegación cuando se abre desde deep link
-  getStateFromPath: (path, options) => {
-    // Si es un deep link de pago, siempre resetear el stack
-    if (path.includes('payment')) {
-      return {
-        routes: [
-          {
-            name: 'PaymentResult',
-            params: options?.params || {},
-          },
-        ],
-        index: 0,
-      };
-    }
-    // Para otros paths, usar el comportamiento por defecto
-    return undefined;
   },
 };
 
@@ -63,38 +51,13 @@ const linking = {
 function AppContent() {
   const navigationRef = useRef(null);
 
-  // Función para manejar el estado de navegación cuando se abre desde deep link
-  const handleNavigationStateChange = () => {
-    const currentRoute = navigationRef.current?.getCurrentRoute();
-    
-    // Si estamos en PaymentResult y venimos de un deep link, resetear el stack
-    if (currentRoute?.name === 'PaymentResult') {
-      // Pequeño delay para asegurar que la navegación se haya completado
-      setTimeout(() => {
-        // No resetear aquí, dejar que PaymentResultScreen lo maneje
-        // pero asegurarnos de que no hay stack anterior
-        console.log('📍 Navegado a PaymentResult desde deep link');
-      }, 100);
-    }
-  };
-
   return (
     <NavigationContainer 
       ref={navigationRef}
       linking={linking}
-      onStateChange={handleNavigationStateChange}
       onReady={() => {
-        // Cuando el contenedor está listo, verificar si hay un deep link pendiente
         const currentRoute = navigationRef.current?.getCurrentRoute();
-        if (currentRoute?.name === 'PaymentResult') {
-          // Si ya estamos en PaymentResult, asegurar que el stack esté limpio
-          navigationRef.current?.dispatch(
-            CommonActions.reset({
-              index: 0,
-              routes: [{ name: 'PaymentResult', params: currentRoute.params }],
-            })
-          );
-        }
+        console.log('📱 App ready, current route:', currentRoute?.name);
       }}
     >
         <StatusBar style="auto" />

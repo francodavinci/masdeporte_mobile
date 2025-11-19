@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useContext } from 'react';
+import React, { useEffect, useState, useContext, useRef } from 'react';
 import {
   View,
   Text,
@@ -15,29 +15,50 @@ import { paymentsService } from '../utils/api';
 import UserDetailContext from '../context/UserDetailContext';
 
 const PaymentResultScreen = ({ route, navigation }) => {
+  // Log completo de todos los parámetros recibidos
+  console.log('📋 PaymentResultScreen recibió route.params completos:', JSON.stringify(route.params, null, 2));
+  
   const { 
     status, 
     payment_id, 
+    collection_id,
     preference_id, 
     payment_type,
-    external_reference 
+    merchant_order_id,
+    external_reference,
+    collection_status,
+    payment_status
   } = route.params || {};
+  
+  // Determinar el status real - MercadoPago puede enviar diferentes nombres de parámetro
+  const finalStatus = status || collection_status || payment_status || 'unknown';
+  // Determinar el ID de pago real
+  const finalPaymentId = payment_id || collection_id;
+  
+  console.log('📋 PaymentResultScreen - Status determinado:', finalStatus);
+  console.log('📋 PaymentResultScreen - payment_id:', payment_id);
+  console.log('📋 PaymentResultScreen - preference_id:', preference_id);
+  
   const [loading, setLoading] = useState(true);
   const [paymentDetails, setPaymentDetails] = useState(null);
   const { userDetails, loadUserData } = useContext(UserDetailContext);
+  const hasInitialized = useRef(false);
+  const hasNavigated = useRef(false);
 
   useEffect(() => {
-    // LIMPIAR EL STACK INMEDIATAMENTE cuando se monta esta pantalla
-    // Esto evita que se pueda volver a la pantalla anterior
-    navigation.dispatch(
-      CommonActions.reset({
-        index: 0,
-        routes: [{ 
-          name: 'PaymentResult', 
-          params: route.params 
-        }],
-      })
-    );
+    // Evitar inicialización múltiple
+    if (hasInitialized.current) {
+      console.log('⚠️ PaymentResultScreen ya fue inicializado, evitando re-inicialización');
+      return;
+    }
+    hasInitialized.current = true;
+
+    console.log('🎬 Inicializando PaymentResultScreen con params:', { 
+      finalStatus, 
+      payment_id, 
+      preference_id,
+      todosLosParams: route.params 
+    });
 
     // Prevenir navegación hacia atrás en esta pantalla
     navigation.setOptions({
@@ -56,66 +77,58 @@ const PaymentResultScreen = ({ route, navigation }) => {
     };
     
     initializeScreen();
-  }, [navigation, route.params]);
+  }, []);
 
-  // Efecto para manejar navegación automática cuando el pago es exitoso
+  // Efecto para manejar navegación automática después de verificar el pago
   useEffect(() => {
-    if (!loading && (status === 'success' || status === 'approved')) {
-      // Esperar un momento para asegurar que los datos se hayan recargado
-      const handleSuccessNavigation = async () => {
-        // Verificar autenticación después de esperar un poco
-        await new Promise(resolve => setTimeout(resolve, 800));
-        
-        // Recargar datos una vez más para estar seguro
-        await loadUserData();
-        await new Promise(resolve => setTimeout(resolve, 300));
-        
-        // Mostrar popup simple y navegar directamente al Home
-        // Usar CommonActions.reset para limpiar completamente el stack de navegación
-        Alert.alert(
-          '¡Turno Reservado! ✅',
-          'Tu turno ha sido reservado exitosamente.',
-          [
-            {
-              text: 'Entendido',
-              onPress: () => {
-                // Reset completo del stack para evitar volver a la pantalla anterior
-                navigation.dispatch(
-                  CommonActions.reset({
-                    index: 0,
-                    routes: [{ name: 'Home' }],
-                  })
-                );
-              }
-            }
-          ],
-          { cancelable: false }
-        );
-      };
+    if (!loading && !hasNavigated.current) {
+      hasNavigated.current = true;
       
-      handleSuccessNavigation();
+      console.log('✅ Pago verificado, navegando al Home...');
+      
+      // Esperar un momento para que el usuario vea el resultado
+      const timer = setTimeout(() => {
+        // Recargar datos del usuario
+        loadUserData().then(() => {
+          // Navegar al Home independientemente del estado
+          console.log('🏠 Navegando al Home');
+          navigation.dispatch(
+            CommonActions.reset({
+              index: 0,
+              routes: [{ name: 'Home' }],
+            })
+          );
+        });
+      }, 2000); // 2 segundos para ver el resultado
+
+      return () => clearTimeout(timer);
     }
-  }, [loading, status, navigation]);
+  }, [loading]);
 
   const checkPaymentStatus = async () => {
     try {
       setLoading(true);
 
+      console.log('🔍 Verificando pago con ID:', finalPaymentId);
+
       // Si tenemos payment_id, verificar el estado del pago
-      if (payment_id) {
+      if (finalPaymentId) {
         try {
-          const response = await paymentsService.getPaymentStatus(payment_id);
+          const response = await paymentsService.getPaymentStatus(finalPaymentId);
           if (response.success) {
             setPaymentDetails(response.data);
+            console.log('✅ Estado del pago obtenido:', response.data);
           } else {
             console.warn('⚠️ No se pudo verificar el estado del pago:', response.message);
             // No mostrar error al usuario, solo usar el status que viene en la URL
           }
         } catch (error) {
-          console.error('Error verificando estado del pago:', error);
+          console.error('❌ Error verificando estado del pago:', error);
           // No mostrar error crítico al usuario, el pago ya fue procesado
           // Solo usar el status que viene en los parámetros de la URL
         }
+      } else {
+        console.warn('⚠️ No se recibió payment_id para verificar');
       }
 
       // Dar un pequeño delay para mejor UX
@@ -141,7 +154,9 @@ const PaymentResultScreen = ({ route, navigation }) => {
   };
 
   const getStatusConfig = () => {
-    switch (status) {
+    console.log('🔍 Determinando configuración para status:', finalStatus);
+    
+    switch (finalStatus) {
       case 'success':
       case 'approved':
         return {
@@ -172,11 +187,12 @@ const PaymentResultScreen = ({ route, navigation }) => {
           onPress: () => navigation.goBack(),
         };
       default:
+        console.log('⚠️ Status no reconocido, mostrando estado desconocido. route.params:', route.params);
         return {
           icon: 'help-circle-outline',
           color: '#666',
           title: 'Estado Desconocido',
-          message: 'No se pudo determinar el estado del pago.',
+          message: `No se pudo determinar el estado del pago. Status recibido: ${finalStatus}`,
           buttonText: 'Ir a Inicio',
           onPress: handleGoHome,
         };
@@ -206,18 +222,25 @@ const PaymentResultScreen = ({ route, navigation }) => {
         <Text style={styles.title}>{config.title}</Text>
         <Text style={styles.message}>{config.message}</Text>
 
-        {(payment_id || preference_id || external_reference) && (
+        {/* Información del pago */}
+        {(finalPaymentId || preference_id || external_reference || merchant_order_id) && (
           <View style={styles.infoContainer}>
-            {payment_id && (
+            {finalPaymentId && (
               <>
                 <Text style={styles.infoLabel}>ID de Pago:</Text>
-                <Text style={styles.infoValue}>{payment_id}</Text>
+                <Text style={styles.infoValue}>{finalPaymentId}</Text>
               </>
             )}
             {preference_id && (
               <>
                 <Text style={styles.infoLabel}>ID de Preferencia:</Text>
                 <Text style={styles.infoValue}>{preference_id}</Text>
+              </>
+            )}
+            {merchant_order_id && (
+              <>
+                <Text style={styles.infoLabel}>Orden de Mercado:</Text>
+                <Text style={styles.infoValue}>{merchant_order_id}</Text>
               </>
             )}
             {external_reference && (
@@ -232,6 +255,14 @@ const PaymentResultScreen = ({ route, navigation }) => {
                 <Text style={styles.infoValue}>{payment_type}</Text>
               </>
             )}
+          </View>
+        )}
+
+        {/* Debug: Mostrar status original si es desconocido */}
+        {finalStatus === 'unknown' && (
+          <View style={styles.debugContainer}>
+            <Text style={styles.debugLabel}>DEBUG - Parámetros recibidos:</Text>
+            <Text style={styles.debugValue}>{JSON.stringify(route.params, null, 2)}</Text>
           </View>
         )}
 
@@ -331,6 +362,26 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
+  },
+  debugContainer: {
+    backgroundColor: '#FFF3CD',
+    padding: 16,
+    borderRadius: 12,
+    width: '100%',
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: '#FFC107',
+  },
+  debugLabel: {
+    fontSize: 12,
+    color: '#856404',
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  debugValue: {
+    fontSize: 11,
+    color: '#856404',
+    fontFamily: 'monospace',
   },
 });
 

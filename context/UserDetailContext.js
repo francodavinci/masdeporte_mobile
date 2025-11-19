@@ -24,6 +24,8 @@ export const UserDetailProvider = ({ children }) => {
   }, []);
 
   // Recargar datos cuando la app vuelve al foreground (útil después de pagos externos)
+  // DESHABILITADO: Esto causaba loops infinitos con PaymentResultScreen
+  /*
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       if (nextAppState === 'active') {
@@ -37,6 +39,7 @@ export const UserDetailProvider = ({ children }) => {
       subscription?.remove();
     };
   }, []);
+  */
 
   const loadUserData = async () => {
     try {
